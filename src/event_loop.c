@@ -10,6 +10,7 @@ extern void *g_workspace_context;
 extern int g_layer_below_window_level;
 volatile bool __pending_window_focus;
 volatile bool __pending_gesture;
+volatile int __pending_drags;
 volatile uint64_t __last_gesture_time;
 volatile uint64_t __last_cmd_tab_time;
 
@@ -1252,6 +1253,13 @@ out:
 
 static EVENT_HANDLER(MOUSE_DRAGGED)
 {
+    //
+    // NOTE(chixing): high polling-rate mice deliver ~1000 drag events/s and every one
+    // is a synchronous window update; the queue backs up and the window lags the cursor.
+    // Only act on the newest queued drag event; its position supersedes the older ones.
+    //
+
+    if (__atomic_sub_fetch(&__pending_drags, 1, __ATOMIC_ACQ_REL) > 0) goto out;
     if (mission_control_is_active()) goto out;
     if (!g_mouse_state.window)       goto out;
 
@@ -1267,19 +1275,7 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
 
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
-        //
-        // NOTE(chixing): high polling-rate mice deliver ~1000 drag events/s and every one
-        // is a synchronous window move; the queue backs up and the window lags the cursor.
-        // Cap at ~240 updates/s (2x a 120Hz display, so every frame gets a fresh position);
-        // MOUSE_UP applies the final position.
-        //
-
-        uint64_t event_time = read_os_timer();
-        float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
-        if (dt < 4.0f) goto out;
-
         mouse_move_window_to_point(point);
-        g_mouse_state.last_moved_time = event_time;
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         uint64_t event_time = read_os_timer();
         float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());

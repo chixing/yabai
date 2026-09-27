@@ -1,5 +1,6 @@
 extern struct event_loop g_event_loop;
 extern volatile bool __pending_gesture;
+extern volatile int __pending_drags;
 extern volatile uint64_t __last_gesture_time;
 
 static inline uint8_t mouse_mod_from_cgflags(uint32_t cgflags)
@@ -58,6 +59,7 @@ static MOUSE_HANDLER(mouse_handler)
     case kCGEventLeftMouseDragged:
     case kCGEventRightMouseDragged: {
         mouse_state->drag_detected = true;
+        __atomic_add_fetch(&__pending_drags, 1, __ATOMIC_ACQ_REL);
         event_loop_post(&g_event_loop, MOUSE_DRAGGED, (void *) CFRetain(event), 0);
     } break;
     case kCGEventMouseMoved: {
