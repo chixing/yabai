@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# install-local.sh - make a from-source build behave exactly like a Homebrew install.
+# install-local.sh - install this fork's build of yabai in place of a Homebrew install.
 #
-# Mirrors the canonical update-from-HEAD workflow:
-#   stop/uninstall old service -> install binary into PATH -> codesign with a STABLE
-#   self-signed cert (so macOS Accessibility/Screen-Recording grants survive rebuilds)
-#   -> refresh the passwordless `--load-sa` sudoers entry (hash of the SIGNED binary)
-#   -> load the scripting addition -> start the launchd service.
+# Signs a copy of bin/yabai, pins the passwordless `--load-sa` sudoers entry to its hash,
+# swaps it into $PREFIX/bin, loads the scripting addition and restarts the launchd service.
+# Nothing installed is touched until signing and the sudoers update have succeeded.
 #
 # Run via `make install-local` (which builds first). Honours:
-#   PREFIX      install location (default /opt/homebrew, i.e. $(brew --prefix))
-#   YABAI_CERT  code-signing identity   (default yabai-cert)
+#   PREFIX      install location       (default /opt/homebrew)
+#   YABAI_CERT  code-signing identity  (default: first "Apple Development" identity, else yabai-cert)
 #
-# Requires a `yabai-cert` Code Signing identity in your keychain. Create one once:
-#   Keychain Access -> Certificate Assistant -> Create a Certificate
-#     Name: yabai-cert   Identity Type: Self Signed Root   Certificate Type: Code Signing
+# Signing with the same identity every time keeps the Accessibility grant across rebuilds.
 set -euo pipefail
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -28,15 +24,19 @@ fi
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX="${PREFIX:-/opt/homebrew}"
-YABAI_CERT="${YABAI_CERT:-yabai-cert}"
 BIN_SRC="$root/bin/yabai"
 BIN_DST="$PREFIX/bin/yabai"
 SUDOERS="/private/etc/sudoers.d/yabai"
 
+if [ -z "${YABAI_CERT:-}" ]; then
+  YABAI_CERT="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -n 1)"
+  YABAI_CERT="${YABAI_CERT:-yabai-cert}"
+fi
+
 if [ "${1:-}" = "--uninstall" ]; then
   echo "==> uninstalling"
-  yabai --stop-service 2>/dev/null || true
-  yabai --uninstall-service 2>/dev/null || true
+  "$BIN_DST" --stop-service 2>/dev/null || true
+  "$BIN_DST" --uninstall-service 2>/dev/null || true
   sudo "$BIN_DST" --uninstall-sa 2>/dev/null || true
   rm -f "$BIN_DST"
   sudo rm -f "$SUDOERS"
@@ -46,35 +46,40 @@ fi
 
 [ -x "$BIN_SRC" ] || { echo "error: $BIN_SRC not built — run 'make' first" >&2; exit 1; }
 
-echo "==> stopping any existing service"
-yabai --stop-service 2>/dev/null || true
-yabai --uninstall-service 2>/dev/null || true
-
-echo "==> installing $BIN_SRC -> $BIN_DST"
 mkdir -p "$PREFIX/bin"
-rm -f "$BIN_DST"                      # clear any prior symlink (e.g. from a dev `ln -s`)
-cp "$BIN_SRC" "$BIN_DST"
+# same directory as $BIN_DST, so the final mv is an atomic rename
+stage="$(mktemp "$PREFIX/bin/.yabai.XXXXXX")"
+sudoers_tmp="$(mktemp)"
+trap 'rm -f "$stage" "$sudoers_tmp"' EXIT
 
-echo "==> codesigning with '$YABAI_CERT' (stable identity -> Accessibility persists across rebuilds)"
-if ! codesign -fs "$YABAI_CERT" "$BIN_DST" 2>/dev/null; then
+cp "$BIN_SRC" "$stage"
+chmod 0755 "$stage"
+
+echo "==> codesigning with '$YABAI_CERT'"
+if ! codesign -fs "$YABAI_CERT" "$stage" 2>/dev/null; then
   cat >&2 <<EOF
-error: code-signing identity '$YABAI_CERT' not found or unusable.
-Create a self-signed Code Signing certificate once, then re-run:
-  Keychain Access -> Certificate Assistant -> Create a Certificate
-    Name: $YABAI_CERT   Identity Type: Self Signed Root   Certificate Type: Code Signing
-(or point at another identity with YABAI_CERT=...)
+error: code-signing identity '$YABAI_CERT' not found or unusable. Nothing was changed.
+Pick one from \`security find-identity -v -p codesigning\` and re-run with YABAI_CERT=...
 EOF
-  rm -f "$BIN_DST"
   exit 1
 fi
-codesign --verify --verbose "$BIN_DST"
+codesign --verify "$stage"
 
-echo "==> refreshing $SUDOERS (passwordless --load-sa, pinned to the SIGNED binary's hash)"
-hash="$(shasum -a 256 "$BIN_DST" | cut -d' ' -f1)"
-printf '%s ALL=(root) NOPASSWD: sha256:%s %s --load-sa\n' "$(whoami)" "$hash" "$BIN_DST" \
-  | sudo tee "$SUDOERS" >/dev/null
-sudo chmod 0440 "$SUDOERS"
-sudo visudo -cf "$SUDOERS"           # validate; aborts if the entry is malformed
+echo "==> pinning $SUDOERS to the new binary's hash (asks for your password)"
+hash="$(shasum -a 256 "$stage" | cut -d' ' -f1)"
+printf '%s ALL=(root) NOPASSWD: sha256:%s %s --load-sa\n' "$(whoami)" "$hash" "$BIN_DST" > "$sudoers_tmp"
+# sudo skips files in sudoers.d whose name contains a '.', so the staged copy is never live
+sudo install -m 0440 -o root -g wheel "$sudoers_tmp" "$SUDOERS.new"
+if ! sudo visudo -cf "$SUDOERS.new" >/dev/null; then
+  sudo rm -f "$SUDOERS.new"
+  echo "error: generated sudoers entry failed validation. Nothing was changed." >&2
+  exit 1
+fi
+sudo mv -f "$SUDOERS.new" "$SUDOERS"
+
+echo "==> installing $BIN_DST"
+"$BIN_DST" --stop-service 2>/dev/null || true
+mv -f "$stage" "$BIN_DST"
 
 echo "==> loading scripting addition"
 sudo "$BIN_DST" --load-sa
@@ -82,9 +87,8 @@ sudo "$BIN_DST" --load-sa
 echo "==> starting launchd service"
 "$BIN_DST" --start-service
 
-cat <<EOF
-
-==> done. yabai is signed ($YABAI_CERT), installed at $BIN_DST, SA loaded, service running.
-    First run after a NEW signature: grant Accessibility once
-    (System Settings -> Privacy & Security -> Accessibility). It will persist from now on.
-EOF
+echo
+echo "==> done. $("$BIN_DST" --version) signed with '$YABAI_CERT' at $BIN_DST"
+if [ -d "$PREFIX/Cellar/yabai" ]; then
+  echo "    A Homebrew yabai is still installed; run 'brew uninstall yabai' so it can't replace this build."
+fi

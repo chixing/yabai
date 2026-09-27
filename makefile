@@ -4,7 +4,6 @@ CLI_FLAGS      =
 BUILD_FLAGS    = -std=c11 -Wall -Wextra -g -O0 -fvisibility=hidden -mmacosx-version-min=11.0 -fno-objc-arc -arch x86_64 -arch arm64 -sectcreate __TEXT __info_plist $(INFO_PLIST)
 BUILD_PATH     = ./bin
 PREFIX        ?= /opt/homebrew
-YABAI_CERT    ?= yabai-cert
 DOC_PATH       = ./doc
 SCRIPT_PATH    = ./scripts
 ASSET_PATH     = ./assets
@@ -29,11 +28,9 @@ tsan: clean-build $(BINS)
 install: BUILD_FLAGS=-std=c11 -Wall -Wextra -DNDEBUG -O3 -fvisibility=hidden -mmacosx-version-min=11.0 -fno-objc-arc -arch x86_64 -arch arm64 -sectcreate __TEXT __info_plist $(INFO_PLIST)
 install: clean-build $(BINS)
 
-# Build (release) and install from source so it behaves exactly like a Homebrew install:
-# copies the binary into PATH, codesigns it with a STABLE cert (so Accessibility grants
-# survive rebuilds), refreshes the passwordless --load-sa sudoers entry, loads the
-# scripting addition, and starts the service. Prompts for your password once (sudoers +
-# load-sa). Override location/identity: `make install-local PREFIX=/usr/local YABAI_CERT=my-cert`
+# Build (release) and install in place of a Homebrew install: signs the binary, pins the
+# passwordless --load-sa sudoers entry to its hash, loads the scripting addition and restarts
+# the service. Prompts for your password once. See scripts/install-local.sh for overrides.
 install-local: BUILD_FLAGS=-std=c11 -Wall -Wextra -DNDEBUG -O3 -fvisibility=hidden -mmacosx-version-min=11.0 -fno-objc-arc -arch x86_64 -arch arm64 -sectcreate __TEXT __info_plist $(INFO_PLIST)
 install-local: clean-build $(BINS)
 	PREFIX="$(PREFIX)" YABAI_CERT="$(YABAI_CERT)" $(SCRIPT_PATH)/install-local.sh
