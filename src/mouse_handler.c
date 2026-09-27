@@ -1,6 +1,7 @@
 extern struct event_loop g_event_loop;
 extern volatile bool __pending_gesture;
 extern volatile int __pending_drags;
+extern volatile int __pending_mouse_moves;
 extern volatile uint64_t __last_gesture_time;
 
 static inline uint8_t mouse_mod_from_cgflags(uint32_t cgflags)
@@ -66,6 +67,7 @@ static MOUSE_HANDLER(mouse_handler)
         uint8_t mod = mouse_mod_from_cgflags(CGEventGetFlags(event));
         if (mod == mouse_state->modifier) return event;
 
+        __atomic_add_fetch(&__pending_mouse_moves, 1, __ATOMIC_ACQ_REL);
         event_loop_post(&g_event_loop, MOUSE_MOVED, (void *) CFRetain(event), mod);
     } break;
     case /* kCGSEventDockControl */ 30: {

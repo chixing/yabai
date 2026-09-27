@@ -77,6 +77,11 @@ struct mouse_state
     uint32_t ffm_window_id;
     uint8_t direction;
     struct window_node *feedback_node;
+    uint32_t drag_did;
+    CGRect drag_display_bounds;
+    CGRect drag_display_constrained;
+    AXUIElementRef eui_app;
+    bool eui_checked;
 };
 
 static char *mouse_mod_str[] =

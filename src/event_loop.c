@@ -11,6 +11,7 @@ extern int g_layer_below_window_level;
 volatile bool __pending_window_focus;
 volatile bool __pending_gesture;
 volatile int __pending_drags;
+volatile int __pending_mouse_moves;
 volatile uint64_t __last_gesture_time;
 volatile uint64_t __last_cmd_tab_time;
 
@@ -689,6 +690,11 @@ static EVENT_HANDLER(WINDOW_MOVED)
         return;
     }
 
+    if (g_mouse_state.current_action == MOUSE_MODE_RESIZE && g_mouse_state.window == window) {
+        debug("%s: %d is being resized with the mouse, deferring event..\n", __FUNCTION__, window_id);
+        return;
+    }
+
     CGPoint new_origin = window_ax_origin(window);
     if (CGPointEqualToPoint(new_origin, window->frame.origin)) {
         debug("%s:DEBOUNCED %s %d\n", __FUNCTION__, window->application->name, window->id);
@@ -736,6 +742,17 @@ static EVENT_HANDLER(WINDOW_RESIZED)
 
     if (window->application->is_hidden) {
         debug("%s: %d was resized while the application is hidden, ignoring event..\n", __FUNCTION__, window_id);
+        return;
+    }
+
+    //
+    // NOTE(chixing): every resize step during a mouse resize makes the app post this notification, and
+    // handling it costs three more AX reads from an app that is busy relaying out. MOUSE_UP handles the
+    // final frame once instead.
+    //
+
+    if (g_mouse_state.current_action == MOUSE_MODE_RESIZE && g_mouse_state.window == window) {
+        debug("%s: %d is being resized with the mouse, deferring event..\n", __FUNCTION__, window_id);
         return;
     }
 
@@ -1115,6 +1132,33 @@ static EVENT_HANDLER(DISPLAY_RESIZED)
     event_signal_push(SIGNAL_DISPLAY_RESIZED, context);
 }
 
+static void mouse_restore_enhanced_ui(void)
+{
+    if (g_mouse_state.eui_app) {
+        AXUIElementSetAttributeValue(g_mouse_state.eui_app, kAXEnhancedUserInterface, kCFBooleanTrue);
+        CFRelease(g_mouse_state.eui_app);
+        g_mouse_state.eui_app = NULL;
+    }
+
+    g_mouse_state.eui_checked = false;
+}
+
+static uint32_t mouse_point_display_id(CGPoint point)
+{
+    if (g_mouse_state.drag_did && CGRectContainsPoint(g_mouse_state.drag_display_bounds, point)) {
+        return g_mouse_state.drag_did;
+    }
+
+    uint32_t did = display_manager_point_display_id(point);
+    if (did) {
+        g_mouse_state.drag_did = did;
+        g_mouse_state.drag_display_bounds = CGDisplayBounds(did);
+        g_mouse_state.drag_display_constrained = display_bounds_constrained(did, false);
+    }
+
+    return did;
+}
+
 static EVENT_HANDLER(MOUSE_DOWN)
 {
     if (mission_control_is_active())                     goto out;
@@ -1126,10 +1170,13 @@ static EVENT_HANDLER(MOUSE_DOWN)
     struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
     if (!window || window_check_flag(window, WINDOW_FULLSCREEN)) goto out;
 
+    mouse_restore_enhanced_ui();
+
     g_mouse_state.window = window;
     g_mouse_state.window_frame = g_mouse_state.window->frame;
     g_mouse_state.down_location = point;
     g_mouse_state.direction = 0;
+    g_mouse_state.drag_did = 0;
 
     int64_t button = CGEventGetIntegerValueField(context, kCGMouseEventButtonNumber);
     uint8_t mod = (uint8_t) param1;
@@ -1157,15 +1204,43 @@ static void mouse_move_window_to_point(CGPoint point)
     CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
                           g_mouse_state.window_frame.origin.y + (point.y - g_mouse_state.down_location.y) };
 
-    uint32_t did = display_manager_point_display_id(new_point);
-    if (did) {
-        CGRect bounds = display_bounds_constrained(did, false);
+    if (mouse_point_display_id(new_point)) {
+        CGRect bounds = g_mouse_state.drag_display_constrained;
         if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
     }
 
     if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) {
         window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
     }
+}
+
+static void mouse_resize_window_to_point(CGPoint point)
+{
+    struct window *window = g_mouse_state.window;
+
+    //
+    // NOTE(chixing): apps with enhanced UI enabled must have it switched off around AX frame changes.
+    // Reading and toggling it on every drag event triples the AX round-trips, so switch it off once
+    // for the whole drag and restore it on mouse-up.
+    //
+
+    if (!g_mouse_state.eui_checked) {
+        g_mouse_state.eui_checked = true;
+        if (ax_enhanced_userinterface(window->application->ref)) {
+            AXUIElementSetAttributeValue(window->application->ref, kAXEnhancedUserInterface, kCFBooleanFalse);
+            g_mouse_state.eui_app = (AXUIElementRef) CFRetain(window->application->ref);
+        }
+    }
+
+    float dx = point.x - g_mouse_state.down_location.x;
+    float dy = point.y - g_mouse_state.down_location.y;
+    CGRect frame = window_manager_resized_frame(g_mouse_state.window_frame, g_mouse_state.direction, (int) dx, (int) dy);
+
+    if (g_mouse_state.direction & (HANDLE_LEFT | HANDLE_TOP)) {
+        window_manager_move_window(window, frame.origin.x, frame.origin.y);
+    }
+
+    window_manager_resize_window(window, frame.size.width, frame.size.height);
 }
 
 static EVENT_HANDLER(MOUSE_UP)
@@ -1186,7 +1261,12 @@ static EVENT_HANDLER(MOUSE_UP)
     CGPoint point = CGEventGetLocation(context);
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
 
-    if (g_mouse_state.current_action == MOUSE_MODE_MOVE) mouse_move_window_to_point(point);
+    if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
+        mouse_move_window_to_point(point);
+    } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
+        g_mouse_state.current_action = MOUSE_MODE_NONE;
+        EVENT_HANDLER_WINDOW_RESIZED((void *)(intptr_t) g_mouse_state.window->id, 0);
+    }
 
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
     if (!src_view) goto err;
@@ -1195,7 +1275,7 @@ static EVENT_HANDLER(MOUSE_UP)
     mouse_window_info_populate(&g_mouse_state, &info);
 
     if (info.changed_position && !info.changed_size) {
-        uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
+        uint64_t cursor_sid = display_space_id(mouse_point_display_id(point));
         struct view *dst_view = space_manager_find_view(&g_space_manager, cursor_sid);
 
         struct window *window = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
@@ -1246,6 +1326,7 @@ static EVENT_HANDLER(MOUSE_UP)
 err:
     g_mouse_state.window = NULL;
 res:
+    mouse_restore_enhanced_ui();
     g_mouse_state.current_action = MOUSE_MODE_NONE;
 out:
     CFRelease(context);
@@ -1265,6 +1346,7 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
 
     if (!__sync_bool_compare_and_swap(&g_mouse_state.window->id_ptr, &g_mouse_state.window->id, &g_mouse_state.window->id)) {
         debug("%s: %d has been marked invalid by the system, ignoring event..\n", __FUNCTION__, g_mouse_state.window->id);
+        mouse_restore_enhanced_ui();
         g_mouse_state.window = NULL;
         g_mouse_state.current_action = MOUSE_MODE_NONE;
         CFRelease(context);
@@ -1282,10 +1364,7 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
         // window->frame is updated asynchronously, so stepping from it needed a ~15Hz throttle.
         //
 
-        int dx = point.x - g_mouse_state.down_location.x;
-        int dy = point.y - g_mouse_state.down_location.y;
-
-        window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window_frame, g_mouse_state.direction, dx, dy, false);
+        mouse_resize_window_to_point(point);
     }
 
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
@@ -1295,7 +1374,7 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
     mouse_window_info_populate(&g_mouse_state, &info);
 
     if (info.changed_position && !info.changed_size) {
-        uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
+        uint64_t cursor_sid = display_space_id(mouse_point_display_id(point));
         struct view *dst_view = space_manager_find_view(&g_space_manager, cursor_sid);
 
         struct window *window = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
@@ -1357,6 +1436,11 @@ out:
 
 static EVENT_HANDLER(MOUSE_MOVED)
 {
+    //
+    // NOTE(chixing): like MOUSE_DRAGGED, only the newest queued move matters for focus-follows-mouse.
+    //
+
+    if (__atomic_sub_fetch(&__pending_mouse_moves, 1, __ATOMIC_ACQ_REL) > 0) goto out;
     if (g_window_manager.ffm_mode == FFM_DISABLED) goto out;
     if (mission_control_is_active())               goto out;
     if (g_mouse_state.ffm_window_id)               goto out;

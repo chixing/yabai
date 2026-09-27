@@ -343,10 +343,8 @@ enum window_op_error window_manager_move_window_relative(struct window_manager *
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
-void window_manager_resize_window_relative_internal(struct window *window, CGRect frame, int direction, float dx, float dy, bool animate)
+CGRect window_manager_resized_frame(CGRect frame, int direction, float dx, float dy)
 {
-    TIME_FUNCTION;
-
     int x_mod = (direction & HANDLE_LEFT) ? -1 : (direction & HANDLE_RIGHT)  ? 1 : 0;
     int y_mod = (direction & HANDLE_TOP)  ? -1 : (direction & HANDLE_BOTTOM) ? 1 : 0;
 
@@ -354,6 +352,19 @@ void window_manager_resize_window_relative_internal(struct window *window, CGRec
     float fh = max(1, frame.size.height + dy * y_mod);
     float fx = (direction & HANDLE_LEFT) ? frame.origin.x + frame.size.width  - fw : frame.origin.x;
     float fy = (direction & HANDLE_TOP)  ? frame.origin.y + frame.size.height - fh : frame.origin.y;
+
+    return (CGRect) {{ fx, fy }, { fw, fh }};
+}
+
+void window_manager_resize_window_relative_internal(struct window *window, CGRect frame, int direction, float dx, float dy, bool animate)
+{
+    TIME_FUNCTION;
+
+    CGRect new_frame = window_manager_resized_frame(frame, direction, dx, dy);
+    float fx = new_frame.origin.x;
+    float fy = new_frame.origin.y;
+    float fw = new_frame.size.width;
+    float fh = new_frame.size.height;
 
     if (animate) {
         window_manager_animate_window((struct window_capture) { .window = window, .x = fx, .y = fy, .w = fw, .h = fh });
@@ -933,12 +944,18 @@ struct window *window_manager_find_window_on_space_by_rank_filtering_window(stru
 static inline bool window_manager_window_connection_is_jankyborders(int window_cid)
 {
     static char process_name[PROC_PIDPATHINFO_MAXSIZE];
+    static int cached_cid;
+    static bool cached_result;
+
+    if (window_cid == cached_cid) return cached_result;
 
     pid_t window_pid = 0;
     SLSConnectionGetPID(window_cid, &window_pid);
     proc_name(window_pid, process_name, sizeof(process_name));
 
-    return strcmp(process_name, "borders") == 0;
+    cached_cid = window_cid;
+    cached_result = strcmp(process_name, "borders") == 0;
+    return cached_result;
 }
 
 struct window *window_manager_find_window_at_point_filtering_window(struct window_manager *wm, CGPoint point, uint32_t filter_wid)
