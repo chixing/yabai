@@ -1151,6 +1151,22 @@ out:
     CFRelease(context);
 }
 
+static void mouse_move_window_to_point(CGPoint point)
+{
+    CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
+                          g_mouse_state.window_frame.origin.y + (point.y - g_mouse_state.down_location.y) };
+
+    uint32_t did = display_manager_point_display_id(new_point);
+    if (did) {
+        CGRect bounds = display_bounds_constrained(did, false);
+        if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
+    }
+
+    if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) {
+        window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
+    }
+}
+
 static EVENT_HANDLER(MOUSE_UP)
 {
     if (mission_control_is_active()) goto out;
@@ -1168,6 +1184,8 @@ static EVENT_HANDLER(MOUSE_UP)
 
     CGPoint point = CGEventGetLocation(context);
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
+
+    if (g_mouse_state.current_action == MOUSE_MODE_MOVE) mouse_move_window_to_point(point);
 
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
     if (!src_view) goto err;
@@ -1249,18 +1267,18 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
 
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
-        CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
-                              g_mouse_state.window_frame.origin.y + (point.y - g_mouse_state.down_location.y) };
+        //
+        // NOTE(chixing): high polling-rate mice deliver ~1000 drag events/s and every one
+        // is a synchronous window move; the queue backs up and the window lags the cursor.
+        // Cap at ~120 updates/s; MOUSE_UP applies the final position.
+        //
 
-        uint32_t did = display_manager_point_display_id(new_point);
-        if (did) {
-            CGRect bounds = display_bounds_constrained(did, false);
-            if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
-        }
+        uint64_t event_time = read_os_timer();
+        float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
+        if (dt < 8.33f) goto out;
 
-        if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) {
-            window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
-        }
+        mouse_move_window_to_point(point);
+        g_mouse_state.last_moved_time = event_time;
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         uint64_t event_time = read_os_timer();
         float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
