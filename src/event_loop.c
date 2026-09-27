@@ -1277,17 +1277,15 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
         mouse_move_window_to_point(point);
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
-        uint64_t event_time = read_os_timer();
-        float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
-        if (dt < 67.67f) goto out;
+        //
+        // NOTE(chixing): resize from the mouse-down frame by the total cursor delta, like move;
+        // window->frame is updated asynchronously, so stepping from it needed a ~15Hz throttle.
+        //
 
         int dx = point.x - g_mouse_state.down_location.x;
         int dy = point.y - g_mouse_state.down_location.y;
 
-        window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window->frame, g_mouse_state.direction, dx, dy, false);
-
-        g_mouse_state.last_moved_time = event_time;
-        g_mouse_state.down_location = point;
+        window_manager_resize_window_relative_internal(g_mouse_state.window, g_mouse_state.window_frame, g_mouse_state.direction, dx, dy, false);
     }
 
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
