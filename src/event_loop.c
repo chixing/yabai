@@ -1270,12 +1270,13 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
         //
         // NOTE(chixing): high polling-rate mice deliver ~1000 drag events/s and every one
         // is a synchronous window move; the queue backs up and the window lags the cursor.
-        // Cap at ~120 updates/s; MOUSE_UP applies the final position.
+        // Cap at ~240 updates/s (2x a 120Hz display, so every frame gets a fresh position);
+        // MOUSE_UP applies the final position.
         //
 
         uint64_t event_time = read_os_timer();
         float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
-        if (dt < 8.33f) goto out;
+        if (dt < 4.0f) goto out;
 
         mouse_move_window_to_point(point);
         g_mouse_state.last_moved_time = event_time;
