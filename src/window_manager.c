@@ -1674,6 +1674,7 @@ static uint32_t *window_manager_existing_application_window_list(struct applicat
 bool window_manager_add_existing_application_windows(struct space_manager *sm, struct window_manager *wm, struct application *application, int refresh_index)
 {
     bool result = false;
+    int tracked_window_count = wm->window.count;
 
     int global_window_count;
     uint32_t *global_window_list = window_manager_existing_application_window_list(application, &global_window_count);
@@ -1808,6 +1809,15 @@ bool window_manager_add_existing_application_windows(struct space_manager *sm, s
     }
 
     if (window_list_ref) CFRelease(window_list_ref);
+
+    //
+    // NOTE(chixing): windows found here (on space change, app activation) must also be subscribed for
+    // SLS window_destroyed, otherwise closing them never untiles them when the AX notification is missed.
+    //
+
+    if (wm->window.count != tracked_window_count && (workspace_is_macos_sequoia() || (workspace_is_macos_tahoe() || workspace_is_macos_goldengate()))) {
+        update_window_notifications();
+    }
 
     return result;
 }
