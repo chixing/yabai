@@ -180,6 +180,10 @@ Global Settings
     You should only enable this if you do NOT use the scripting addition. +
     The scripting addition implements the same functionality in a more robust way.
 
+*space_focus_restore* ['<BOOL_SEL>']::
+    When *space --focus* switches space, focus the window that was last focused on that space, or its first window if that one is gone. +
+    Also focuses a window when the target space is already active but nothing has focus.
+
 *window_shadow* ['<BOOL_SEL>|float']::
     Draw shadow for windows. +
     System Integrity Protection must be partially disabled.

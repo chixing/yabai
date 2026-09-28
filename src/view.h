@@ -212,6 +212,7 @@ struct view
     int right_padding;
     int window_gap;
     uint32_t auto_balance;
+    uint32_t last_focused_wid;
     uint64_t flags;
 };
 

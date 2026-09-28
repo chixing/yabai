@@ -52,6 +52,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_MOUSE_DROP_ACTION     "mouse_drop_action"
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
+#define COMMAND_CONFIG_SPACE_FOCUS_RESTORE   "space_focus_restore"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -1274,6 +1275,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_FOCUS_RESTORE)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_space_manager.space_focus_restore]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_space_manager.space_focus_restore = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_space_manager.space_focus_restore = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
         } else if (token_equals(command, COMMAND_CONFIG_OPACITY)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -1780,7 +1792,17 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
         if (token_equals(command, COMMAND_SPACE_FOCUS)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             if (selector.did_parse && selector.sid) {
+                uint32_t remembered_wid = g_space_manager.space_focus_restore ? space_manager_find_view(&g_space_manager, selector.sid)->last_focused_wid : 0;
                 enum space_op_error result = space_manager_focus_space(selector.sid);
+                if (g_space_manager.space_focus_restore) {
+                    if (result == SPACE_OP_ERROR_SUCCESS) {
+                        g_space_manager.pending_focus_restore_sid = selector.sid;
+                        g_space_manager.pending_focus_restore_wid = remembered_wid;
+                    } else if (result == SPACE_OP_ERROR_SAME_SPACE && !window_manager_focused_window(&g_window_manager)) {
+                        window_manager_restore_space_focus(&g_window_manager, selector.sid, remembered_wid);
+                        result = SPACE_OP_ERROR_SUCCESS;
+                    }
+                }
                 if (result == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
                 } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {

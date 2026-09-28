@@ -56,6 +56,9 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     wm->focused_window_psn = window->application->psn;
     ms->ffm_window_id = 0;
 
+    uint64_t sid = window_space(window->id);
+    if (sid) space_manager_find_view(&g_space_manager, sid)->last_focused_wid = window->id;
+
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (!view) return;
 
@@ -1009,6 +1012,17 @@ static EVENT_HANDLER(SLS_SPACE_DESTROYED)
     }
 }
 
+static void space_did_change_restore_focus(void)
+{
+    uint64_t sid = g_space_manager.pending_focus_restore_sid;
+    if (!sid) return;
+
+    g_space_manager.pending_focus_restore_sid = 0;
+    if (sid == g_space_manager.current_space_id) {
+        window_manager_restore_space_focus(&g_window_manager, sid, g_space_manager.pending_focus_restore_wid);
+    }
+}
+
 static EVENT_HANDLER(SPACE_CHANGED)
 {
     g_space_manager.last_space_id = g_space_manager.current_space_id;
@@ -1043,6 +1057,7 @@ static EVENT_HANDLER(SPACE_CHANGED)
         }
     }
 
+    space_did_change_restore_focus();
     event_signal_push(SIGNAL_SPACE_CHANGED, NULL);
 }
 
@@ -1095,6 +1110,7 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
         }
     }
 
+    space_did_change_restore_focus();
     event_signal_push(SIGNAL_DISPLAY_CHANGED, NULL);
 }
 

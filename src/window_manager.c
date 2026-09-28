@@ -941,6 +941,28 @@ struct window *window_manager_find_window_on_space_by_rank_filtering_window(stru
     return result;
 }
 
+void window_manager_restore_space_focus(struct window_manager *wm, uint64_t sid, uint32_t wid)
+{
+    struct window *window = wid ? window_manager_find_window(wm, wid) : NULL;
+    if (window && (window_check_flag(window, WINDOW_MINIMIZE) || window->application->is_hidden || (window_space(window->id) != sid && !window_is_sticky(window->id)))) {
+        window = NULL;
+    }
+
+    if (!window) {
+        int count;
+        uint32_t *window_list = space_window_list(sid, &count, false);
+        for (int i = 0; window_list && i < count; ++i) {
+            struct window *candidate = window_manager_find_window(wm, window_list[i]);
+            if (!candidate || candidate->application->is_hidden || !window_manager_is_window_eligible(candidate) || window_is_sticky(candidate->id)) continue;
+
+            window = candidate;
+            break;
+        }
+    }
+
+    if (window) window_manager_focus_window_with_raise(&window->application->psn, window->id, window->ref);
+}
+
 static inline bool window_manager_window_connection_is_jankyborders(int window_cid)
 {
     static char process_name[PROC_PIDPATHINFO_MAXSIZE];

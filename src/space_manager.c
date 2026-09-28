@@ -1210,6 +1210,9 @@ void space_manager_begin(struct space_manager *sm)
     sm->window_zoom_persist = true;
     sm->labels = NULL;
     sm->skip_window_focus_animation = false;
+    sm->space_focus_restore = false;
+    sm->pending_focus_restore_sid = 0;
+    sm->pending_focus_restore_wid = 0;
     table_init(&sm->view, 23, hash_view, compare_view);
 
     int display_count;
