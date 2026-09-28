@@ -26,6 +26,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX="${PREFIX:-/opt/homebrew}"
 BIN_SRC="$root/bin/yabai"
 BIN_DST="$PREFIX/bin/yabai"
+MSG_SRC="$root/bin/yabai-msg"
+MSG_DST="$PREFIX/bin/yabai-msg"
 SUDOERS="/private/etc/sudoers.d/yabai"
 
 if [ -z "${YABAI_CERT:-}" ]; then
@@ -38,7 +40,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   "$BIN_DST" --stop-service 2>/dev/null || true
   "$BIN_DST" --uninstall-service 2>/dev/null || true
   sudo "$BIN_DST" --uninstall-sa 2>/dev/null || true
-  rm -f "$BIN_DST"
+  rm -f "$BIN_DST" "$MSG_DST"
   sudo rm -f "$SUDOERS"
   echo "==> removed binary, service, scripting-addition, and sudoers entry"
   exit 0
@@ -80,6 +82,9 @@ sudo mv -f "$SUDOERS.new" "$SUDOERS"
 echo "==> installing $BIN_DST"
 "$BIN_DST" --stop-service 2>/dev/null || true
 mv -f "$stage" "$BIN_DST"
+if [ -x "$MSG_SRC" ]; then
+  install -m 0755 "$MSG_SRC" "$MSG_DST"
+fi
 
 echo "==> loading scripting addition"
 sudo "$BIN_DST" --load-sa
