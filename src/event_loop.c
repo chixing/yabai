@@ -263,6 +263,16 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
     }
 
     debug("%s: %s (%d)\n", __FUNCTION__, process->name, process->pid);
+
+    //
+    // NOTE(chixing): macOS may already have activated another app (often Finder, with nothing on this space)
+    // before we see the termination, so also restore when the quitting app was front just before that.
+    //
+
+    bool restore_focus = g_space_manager.close_focus_restore &&
+                         (g_process_manager.front_pid == process->pid ||
+                         (g_process_manager.last_front_pid == process->pid && !g_window_manager.focused_window_id));
+
     event_signal_push(SIGNAL_APPLICATION_TERMINATED, application);
     window_manager_remove_application(&g_window_manager, application->pid);
 
@@ -339,6 +349,10 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
 
         window_node_flush(view->root);
         view_clear_flag(view, VIEW_IS_DIRTY);
+    }
+
+    if (restore_focus) {
+        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id);
     }
 
     if (workspace_is_macos_sequoia() || (workspace_is_macos_tahoe() || workspace_is_macos_goldengate())) {
@@ -615,6 +629,8 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application ? window->application->name : "<unknown>", window->id);
 
+    bool restore_focus = g_space_manager.close_focus_restore && window->id == g_window_manager.focused_window_id;
+
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (view) {
         space_manager_untile_window(view, window);
@@ -632,6 +648,10 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     window_manager_remove_window(&g_window_manager, window->id);
     window_unobserve(window);
     window_destroy(window);
+
+    if (restore_focus) {
+        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id);
+    }
 
     if (workspace_is_macos_sequoia() || (workspace_is_macos_tahoe() || workspace_is_macos_goldengate())) {
         update_window_notifications();

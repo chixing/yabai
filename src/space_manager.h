@@ -29,6 +29,7 @@ struct space_manager
     bool skip_window_focus_animation;
     bool space_focus_restore;
     bool minimize_focus_restore;
+    bool close_focus_restore;
     uint64_t pending_focus_restore_sid;
     uint32_t pending_focus_restore_wid;
 };

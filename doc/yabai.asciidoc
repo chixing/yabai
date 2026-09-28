@@ -187,6 +187,9 @@ Global Settings
 *minimize_focus_restore* ['<BOOL_SEL>']::
     When the focused window is minimized, focus the previously focused window on the same space, or the frontmost remaining window if that one is gone.
 
+*close_focus_restore* ['<BOOL_SEL>']::
+    When the focused window is closed, or the frontmost application quits, focus the previously focused window on the same space, or the frontmost remaining window if that one is gone.
+
 *window_shadow* ['<BOOL_SEL>|float']::
     Draw shadow for windows. +
     System Integrity Protection must be partially disabled.
