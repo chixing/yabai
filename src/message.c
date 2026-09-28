@@ -152,6 +152,7 @@ extern bool g_verbose;
 #define COMMAND_WINDOW_SCRATCHPAD "--scratchpad"
 
 #define ARGUMENT_WINDOW_SEL_LARGEST     "largest"
+#define ARGUMENT_WINDOW_DEMINIMIZE_LAST "last"
 #define ARGUMENT_WINDOW_SEL_SMALLEST    "smallest"
 #define ARGUMENT_WINDOW_SEL_SIBLING     "sibling"
 #define ARGUMENT_WINDOW_SEL_FNEPHEW     "first_nephew"
@@ -161,7 +162,6 @@ extern bool g_verbose;
 #define ARGUMENT_WINDOW_SEL_SCOUSIN     "second_cousin"
 #define ARGUMENT_WINDOW_GRID            "%d:%d:%d:%d:%d:%d"
 #define ARGUMENT_WINDOW_MOVE            "%255[^:]:%f:%f"
-#define ARGUMENT_WINDOW_RESIZE          "%255[^:]:%f:%f"
 #define ARGUMENT_WINDOW_RATIO           "%255[^:]:%f"
 #define ARGUMENT_WINDOW_LAYER_BELOW     "below"
 #define ARGUMENT_WINDOW_LAYER_NORMAL    "normal"
@@ -480,6 +480,35 @@ static uint8_t parse_value_type(char *type)
     } else {
         return 0;
     }
+}
+
+static bool parse_resize_amount(char *text, float extent, float *amount)
+{
+    char *end;
+    *amount = strtof(text, &end);
+    if (end == text) return false;
+
+    if (*end == '%') {
+        *amount = *amount * extent / 100.0f;
+        ++end;
+    }
+
+    return *end == '\0';
+}
+
+// <handle>:<dx>:<dy>, where dx and dy may be suffixed with '%' to mean a
+// percentage of the width and height of the window's display.
+static bool parse_resize_value(char *text, struct window *window, char *handle, float *dx, float *dy)
+{
+    char x[MAXLEN], y[MAXLEN];
+    if (sscanf(text, "%255[^:]:%255[^:]:%255s", handle, x, y) != 3) return false;
+
+    CGRect bounds = CGRectZero;
+    if (strchr(x, '%') || strchr(y, '%')) {
+        bounds = CGDisplayBounds(window_display_id(window->id));
+    }
+
+    return parse_resize_amount(x, bounds.size.width, dx) && parse_resize_amount(y, bounds.size.height, dy);
 }
 
 static uint8_t parse_resize_handle(char *handle)
@@ -2162,13 +2191,24 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 daemon_fail(rsp, "could not locate the window to act on!\n");
             }
         } else if (token_equals(command, COMMAND_WINDOW_DEMINIMIZE)) {
-            struct selector selector = parse_window_selector(rsp, &message, acting_window, false);
+            char *selector_start = message;
+            struct selector selector;
+            bool focus = token_equals(get_token(&message), ARGUMENT_WINDOW_DEMINIMIZE_LAST);
+            if (focus) {
+                selector = (struct selector) { .did_parse = true, .window = window_manager_last_minimized_window(&g_window_manager) };
+                if (!selector.window) daemon_fail(rsp, "could not locate a minimized window.\n");
+            } else {
+                message = selector_start;
+                selector = parse_window_selector(rsp, &message, acting_window, false);
+            }
             if (selector.did_parse && selector.window) {
                 enum window_op_error result = window_manager_deminimize_window(selector.window);
                 if (result == WINDOW_OP_ERROR_NOT_MINIMIZED) {
                     daemon_fail(rsp, "window with id '%d' is not minimized.\n", selector.window->id);
                 } else if (result == WINDOW_OP_ERROR_DEMINIMIZE_FAILED) {
                     daemon_fail(rsp, "could not deminimize window with id '%d'.\n", selector.window->id);
+                } else if (focus) {
+                    window_manager_focus_window_with_raise(&selector.window->application->psn, selector.window->id, selector.window->ref);
                 }
             }
         } else if (token_equals(command, COMMAND_WINDOW_DISPLAY)) {
@@ -2275,7 +2315,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             float w, h;
             char handle[MAXLEN];
             struct token value = get_token(&message);
-            if ((sscanf(value.text, ARGUMENT_WINDOW_RESIZE, handle, &w, &h) == 3)) {
+            if (parse_resize_value(value.text, acting_window, handle, &w, &h)) {
                 enum window_op_error result = window_manager_resize_window_relative(&g_window_manager, acting_window, parse_resize_handle(handle), w, h, true);
                 if (result == WINDOW_OP_ERROR_INVALID_SRC_NODE) {
                     daemon_fail(rsp, "cannot locate bsp node for the managed window.\n");

@@ -87,6 +87,8 @@ struct window_manager
     uint32_t focused_window_id;
     ProcessSerialNumber focused_window_psn;
     uint32_t last_window_id;
+    uint32_t minimized_window_stack[32];
+    int minimized_window_count;
     bool enable_mff;
     enum ffm_mode ffm_mode;
     enum purify_mode purify_mode;
@@ -185,6 +187,8 @@ enum window_op_error window_manager_warp_window(struct space_manager *sm, struct
 enum window_op_error window_manager_swap_window(struct space_manager *sm, struct window_manager *wm, struct window *a, struct window *b);
 enum window_op_error window_manager_minimize_window(struct window *window);
 enum window_op_error window_manager_deminimize_window(struct window *window);
+void window_manager_push_minimized_window(struct window_manager *wm, uint32_t wid);
+struct window *window_manager_last_minimized_window(struct window_manager *wm);
 bool window_manager_close_window(struct window *window);
 void window_manager_send_window_to_space(struct space_manager *sm, struct window_manager *wm, struct window *window, uint64_t sid, bool moved_by_rule);
 struct window *window_manager_create_and_add_window(struct space_manager *sm, struct window_manager *wm, struct application *application, AXUIElementRef window_ref, uint32_t window_id, bool one_shot_rules);

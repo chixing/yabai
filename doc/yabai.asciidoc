@@ -390,8 +390,9 @@ COMMAND
     If none specified, minimize the selected window instead. +
     Only works on windows that provide a minimize button in its titlebar.
 
-*--deminimize* '<WINDOW_SEL>'::
+*--deminimize* '<WINDOW_SEL>|last'::
     Restore the given window if it is minimized. +
+    'last' restores and focuses the most recently minimized window that is still minimized. +
     The window will only get focus if the owning application has focus. +
     Note that you can also '--focus' a minimized window to restore it as the focused window.
 
@@ -424,7 +425,8 @@ COMMAND
 
 *--resize* 'top|left|bottom|right|top_left|top_right|bottom_right|bottom_left|abs:<dx>:<dy>'::
     Resize the selected window by moving the given handle 'dx' pixels horizontally and 'dy' pixels vertically. +
-    If handle is 'abs' the new size will be 'dx' width and 'dy' height and cannot be used on managed windows.
+    If handle is 'abs' the new size will be 'dx' width and 'dy' height and cannot be used on managed windows. +
+    'dx' and 'dy' may end in '%' to mean a percentage of the display's width and height, e.g. 'right:-5%:0'.
 
 *--ratio* 'rel|abs:<dr>'::
     If type is 'rel' the split ratio of the selected window is changed by 'dr', otherwise 'dr' will become the new split ratio. +

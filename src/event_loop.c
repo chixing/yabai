@@ -858,6 +858,7 @@ static EVENT_HANDLER(WINDOW_MINIMIZED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
     window_set_flag(window, WINDOW_MINIMIZE);
+    window_manager_push_minimized_window(&g_window_manager, window->id);
 
     if (window_ax_can_move(window)) {
         window_set_flag(window, WINDOW_MOVABLE);

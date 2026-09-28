@@ -941,6 +941,34 @@ struct window *window_manager_find_window_on_space_by_rank_filtering_window(stru
     return result;
 }
 
+void window_manager_push_minimized_window(struct window_manager *wm, uint32_t wid)
+{
+    int capacity = array_count(wm->minimized_window_stack);
+    if (wm->minimized_window_count == capacity) {
+        memmove(wm->minimized_window_stack, wm->minimized_window_stack + 1, (capacity - 1) * sizeof(uint32_t));
+        --wm->minimized_window_count;
+    }
+    wm->minimized_window_stack[wm->minimized_window_count++] = wid;
+}
+
+// The most recently minimized window that is still minimized. Falls back to any
+// minimized window, e.g. one that was minimized before yabai started.
+struct window *window_manager_last_minimized_window(struct window_manager *wm)
+{
+    while (wm->minimized_window_count > 0) {
+        uint32_t wid = wm->minimized_window_stack[--wm->minimized_window_count];
+        struct window *window = window_manager_find_window(wm, wid);
+        if (window && window_check_flag(window, WINDOW_MINIMIZE)) return window;
+    }
+
+    struct window *result = NULL;
+    struct window *window;
+    table_for(window, wm->window, {
+        if (!result && window_check_flag(window, WINDOW_MINIMIZE)) result = window;
+    })
+    return result;
+}
+
 void window_manager_restore_space_focus(struct window_manager *wm, uint64_t sid, uint32_t wid)
 {
     struct window *window = wid ? window_manager_find_window(wm, wid) : NULL;
