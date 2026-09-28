@@ -888,6 +888,10 @@ static EVENT_HANDLER(WINDOW_MINIMIZED)
         window_manager_purify_window(&g_window_manager, window);
     }
 
+    if (g_space_manager.minimize_focus_restore && window->id == g_window_manager.focused_window_id) {
+        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id);
+    }
+
     event_signal_push(SIGNAL_WINDOW_MINIMIZED, window);
 }
 

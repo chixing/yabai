@@ -53,6 +53,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
 #define COMMAND_CONFIG_SPACE_FOCUS_RESTORE   "space_focus_restore"
+#define COMMAND_CONFIG_MINIMIZE_FOCUS_RESTORE "minimize_focus_restore"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -1283,6 +1284,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 g_space_manager.space_focus_restore = false;
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
                 g_space_manager.space_focus_restore = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_MINIMIZE_FOCUS_RESTORE)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_space_manager.minimize_focus_restore]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_space_manager.minimize_focus_restore = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_space_manager.minimize_focus_restore = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }

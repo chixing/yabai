@@ -953,7 +953,7 @@ void window_manager_restore_space_focus(struct window_manager *wm, uint64_t sid,
         uint32_t *window_list = space_window_list(sid, &count, false);
         for (int i = 0; window_list && i < count; ++i) {
             struct window *candidate = window_manager_find_window(wm, window_list[i]);
-            if (!candidate || candidate->application->is_hidden || !window_manager_is_window_eligible(candidate) || window_is_sticky(candidate->id)) continue;
+            if (!candidate || window_check_flag(candidate, WINDOW_MINIMIZE) || candidate->application->is_hidden || !window_manager_is_window_eligible(candidate) || window_is_sticky(candidate->id)) continue;
 
             window = candidate;
             break;
