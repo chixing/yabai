@@ -99,7 +99,7 @@ struct window
     bool is_eligible;
     uint8_t notification;
     uint8_t rule_flags;
-    uint8_t flags;
+    uint16_t flags;
     float opacity;
     int layer;
     char *scratchpad;
@@ -114,7 +114,8 @@ enum window_flag
     WINDOW_STICKY     = 0x10,
     WINDOW_WINDOWED   = 0x20,
     WINDOW_MOVABLE    = 0x40,
-    WINDOW_RESIZABLE  = 0x80
+    WINDOW_RESIZABLE  = 0x80,
+    WINDOW_ORDERED_OUT = 0x100
 };
 
 enum window_rule_flag

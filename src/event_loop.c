@@ -1001,6 +1001,38 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
     debug("%s: %d\n", __FUNCTION__, wid);
     struct window_node *node = table_find(&g_window_manager.insert_feedback, &wid);
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
+
+    //
+    // NOTE(chixing): some apps "close" a window by ordering it out and keeping it alive (e.g. About
+    // windows), so no destroyed event ever arrives and the tile stays as a hole. Untile a managed
+    // window when it is ordered out, and tile it again if the app orders the same window back in.
+    //
+
+    struct window *window = window_manager_find_window(&g_window_manager, wid);
+    if (!window || mission_control_is_active()) return;
+
+    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    if (!view && !window_check_flag(window, WINDOW_ORDERED_OUT)) return;
+
+    uint8_t ordered_in = 0;
+    SLSWindowIsOrderedIn(g_connection, wid, &ordered_in);
+
+    if (view && !ordered_in) {
+        debug("%s: %s %d was ordered out, untiling..\n", __FUNCTION__, window->application->name, wid);
+        window_set_flag(window, WINDOW_ORDERED_OUT);
+        space_manager_untile_window(view, window);
+        window_manager_remove_managed_window(&g_window_manager, window->id);
+        window_manager_purify_window(&g_window_manager, window);
+    } else if (!view && ordered_in) {
+        window_clear_flag(window, WINDOW_ORDERED_OUT);
+
+        uint64_t sid = space_manager_active_space();
+        if (space_manager_is_window_on_space(sid, window) && window_manager_should_manage_window(window)) {
+            debug("%s: %s %d was ordered back in, tiling..\n", __FUNCTION__, window->application->name, wid);
+            view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
+            window_manager_add_managed_window(&g_window_manager, window, view);
+        }
+    }
 }
 
 static EVENT_HANDLER(SLS_WINDOW_DESTROYED)
