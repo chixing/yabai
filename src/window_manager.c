@@ -969,9 +969,9 @@ struct window *window_manager_last_minimized_window(struct window_manager *wm)
     return result;
 }
 
-void window_manager_restore_space_focus(struct window_manager *wm, uint64_t sid, uint32_t wid)
+bool window_manager_restore_space_focus(struct window_manager *wm, uint64_t sid, uint32_t wid, uint32_t exclude_wid)
 {
-    struct window *window = wid ? window_manager_find_window(wm, wid) : NULL;
+    struct window *window = wid && wid != exclude_wid ? window_manager_find_window(wm, wid) : NULL;
     if (window && (window_check_flag(window, WINDOW_MINIMIZE) || window->application->is_hidden || (window_space(window->id) != sid && !window_is_sticky(window->id)))) {
         window = NULL;
     }
@@ -981,7 +981,7 @@ void window_manager_restore_space_focus(struct window_manager *wm, uint64_t sid,
         uint32_t *window_list = space_window_list(sid, &count, false);
         for (int i = 0; window_list && i < count; ++i) {
             struct window *candidate = window_manager_find_window(wm, window_list[i]);
-            if (!candidate || window_check_flag(candidate, WINDOW_MINIMIZE) || candidate->application->is_hidden || !window_manager_is_window_eligible(candidate) || window_is_sticky(candidate->id)) continue;
+            if (!candidate || candidate->id == exclude_wid || window_check_flag(candidate, WINDOW_MINIMIZE) || candidate->application->is_hidden || !window_manager_is_window_eligible(candidate) || window_is_sticky(candidate->id)) continue;
 
             window = candidate;
             break;
@@ -989,6 +989,7 @@ void window_manager_restore_space_focus(struct window_manager *wm, uint64_t sid,
     }
 
     if (window) window_manager_focus_window_with_raise(&window->application->psn, window->id, window->ref);
+    return window != NULL;
 }
 
 static inline bool window_manager_window_connection_is_jankyborders(int window_cid)
@@ -2173,7 +2174,8 @@ void window_manager_send_window_to_space(struct space_manager *sm, struct window
     uint64_t src_sid = window_space(window->id);
     if (src_sid == dst_sid) return;
 
-    if ((space_is_visible(src_sid) && (moved_by_rule || wm->focused_window_id == window->id))) {
+    if ((space_is_visible(src_sid) && (moved_by_rule || wm->focused_window_id == window->id)) &&
+        !(sm->focus_restore && window_manager_restore_space_focus(wm, src_sid, wm->last_window_id, window->id))) {
         struct window *next = window_manager_find_window_on_space_by_rank_filtering_window(wm, src_sid, 1, window->id);
         if (next) {
             window_manager_focus_window_with_raise(&next->application->psn, next->id, next->ref);
@@ -2545,11 +2547,13 @@ bool window_manager_toggle_scratchpad_window(struct window_manager *wm, struct w
 mode_0:;
     if (visible_space && ordered_in) {
 mode_1:;
-        struct window *next = window_manager_find_window_on_space_by_rank_filtering_window(wm, sid, 1, window->id);
-        if (next) {
-            window_manager_focus_window_with_raise(&next->application->psn, next->id, next->ref);
-        } else {
-            _SLPSSetFrontProcessWithOptions(&g_process_manager.finder_psn, 0, kCPSNoWindows);
+        if (!(g_space_manager.focus_restore && window_manager_restore_space_focus(wm, sid, wm->last_window_id, window->id))) {
+            struct window *next = window_manager_find_window_on_space_by_rank_filtering_window(wm, sid, 1, window->id);
+            if (next) {
+                window_manager_focus_window_with_raise(&next->application->psn, next->id, next->ref);
+            } else {
+                _SLPSSetFrontProcessWithOptions(&g_process_manager.finder_psn, 0, kCPSNoWindows);
+            }
         }
         scripting_addition_order_window(window->id, 0, 0);
     } else if (visible_space && !ordered_in) {

@@ -269,7 +269,7 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
     // before we see the termination, so also restore when the quitting app was front just before that.
     //
 
-    bool restore_focus = g_space_manager.close_focus_restore &&
+    bool restore_focus = g_space_manager.focus_restore &&
                          (g_process_manager.front_pid == process->pid ||
                          (g_process_manager.last_front_pid == process->pid && !g_window_manager.focused_window_id));
 
@@ -352,7 +352,7 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
     }
 
     if (restore_focus) {
-        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id);
+        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id, 0);
     }
 
     if (workspace_is_macos_sequoia() || (workspace_is_macos_tahoe() || workspace_is_macos_goldengate())) {
@@ -514,6 +514,10 @@ static EVENT_HANDLER(APPLICATION_HIDDEN)
     debug("%s: %s\n", __FUNCTION__, application->name);
     application->is_hidden = true;
 
+    bool restore_focus = g_space_manager.focus_restore &&
+                         (g_process_manager.front_pid == application->pid ||
+                         (g_process_manager.last_front_pid == application->pid && !g_window_manager.focused_window_id));
+
     int window_count;
     struct window **window_list = window_manager_find_application_windows(&g_window_manager, application, &window_count);
 
@@ -562,6 +566,10 @@ static EVENT_HANDLER(APPLICATION_HIDDEN)
 
         window_node_flush(view->root);
         view_clear_flag(view, VIEW_IS_DIRTY);
+    }
+
+    if (restore_focus) {
+        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id, 0);
     }
 
     event_signal_push(SIGNAL_APPLICATION_HIDDEN, application);
@@ -629,7 +637,7 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application ? window->application->name : "<unknown>", window->id);
 
-    bool restore_focus = g_space_manager.close_focus_restore && window->id == g_window_manager.focused_window_id;
+    bool restore_focus = g_space_manager.focus_restore && window->id == g_window_manager.focused_window_id;
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (view) {
@@ -650,7 +658,7 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     window_destroy(window);
 
     if (restore_focus) {
-        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id);
+        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id, 0);
     }
 
     if (workspace_is_macos_sequoia() || (workspace_is_macos_tahoe() || workspace_is_macos_goldengate())) {
@@ -909,8 +917,8 @@ static EVENT_HANDLER(WINDOW_MINIMIZED)
         window_manager_purify_window(&g_window_manager, window);
     }
 
-    if (g_space_manager.minimize_focus_restore && window->id == g_window_manager.focused_window_id) {
-        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id);
+    if (g_space_manager.focus_restore && window->id == g_window_manager.focused_window_id) {
+        window_manager_restore_space_focus(&g_window_manager, space_manager_active_space(), g_window_manager.last_window_id, 0);
     }
 
     event_signal_push(SIGNAL_WINDOW_MINIMIZED, window);
@@ -1044,7 +1052,7 @@ static void space_did_change_restore_focus(void)
 
     g_space_manager.pending_focus_restore_sid = 0;
     if (sid == g_space_manager.current_space_id) {
-        window_manager_restore_space_focus(&g_window_manager, sid, g_space_manager.pending_focus_restore_wid);
+        window_manager_restore_space_focus(&g_window_manager, sid, g_space_manager.pending_focus_restore_wid, 0);
     }
 }
 
