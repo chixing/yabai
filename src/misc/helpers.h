@@ -318,6 +318,13 @@ static inline char *ts_string_escape(char *s)
     return result;
 }
 
+static inline const char *ts_json_string(char *value)
+{
+    if (!value) return "";
+    char *escaped = ts_string_escape(value);
+    return escaped ? escaped : value;
+}
+
 static inline CFStringRef CFSTRINGNUM32(int32_t num)
 {
     char num_str[255] = {0};

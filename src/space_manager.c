@@ -23,46 +23,41 @@ bool space_manager_query_space(FILE *rsp, uint64_t sid, uint64_t flags)
     return true;
 }
 
-bool space_manager_query_spaces_for_window(FILE *rsp, struct window *window, uint64_t flags)
+static bool space_manager_serialize_spaces(FILE *rsp, uint64_t *space_list, int space_count, uint64_t flags)
 {
-    TIME_FUNCTION;
-
-    int space_count;
-    uint64_t *space_list = window_space_list(window->id, &space_count);
     if (!space_list) return false;
 
+    bool did_output = false;
     fprintf(rsp, "[");
     for (int i = 0; i < space_count; ++i) {
         struct view *view = space_manager_query_view(&g_space_manager, space_list[i]);
         if (!view) continue;
 
+        if (did_output) fprintf(rsp, ",");
         view_serialize(rsp, view, flags);
-        fprintf(rsp, "%c", i < space_count - 1 ? ',' : ']');
+        did_output = true;
     }
-    fprintf(rsp, "\n");
+    fprintf(rsp, "]\n");
 
     return true;
+}
+
+bool space_manager_query_spaces_for_window(FILE *rsp, struct window *window, uint64_t flags)
+{
+    TIME_FUNCTION;
+
+    int space_count = 0;
+    uint64_t *space_list = window_space_list(window->id, &space_count);
+    return space_manager_serialize_spaces(rsp, space_list, space_count, flags);
 }
 
 bool space_manager_query_spaces_for_display(FILE *rsp, uint32_t did, uint64_t flags)
 {
     TIME_FUNCTION;
 
-    int space_count;
+    int space_count = 0;
     uint64_t *space_list = display_space_list(did, &space_count);
-    if (!space_list) return false;
-
-    fprintf(rsp, "[");
-    for (int i = 0; i < space_count; ++i) {
-        struct view *view = space_manager_query_view(&g_space_manager, space_list[i]);
-        if (!view) continue;
-
-        view_serialize(rsp, view, flags);
-        fprintf(rsp, "%c", i < space_count - 1 ? ',' : ']');
-    }
-    fprintf(rsp, "\n");
-
-    return true;
+    return space_manager_serialize_spaces(rsp, space_list, space_count, flags);
 }
 
 bool space_manager_query_spaces_for_displays(FILE *rsp, uint64_t flags)

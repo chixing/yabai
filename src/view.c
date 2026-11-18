@@ -890,7 +890,7 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
         if (did_output) fprintf(rsp, ",\n");
 
         struct space_label *space_label = space_manager_get_label_for_space(&g_space_manager, view->sid);
-        fprintf(rsp, "\t\"label\":\"%s\"", space_label ? space_label->label : "");
+        fprintf(rsp, "\t\"label\":\"%s\"", ts_json_string(space_label ? space_label->label : NULL));
         did_output = true;
     }
 

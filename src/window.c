@@ -64,36 +64,43 @@ static uint64_t window_display_space(uint32_t wid)
     return sid;
 }
 
+static CFArrayRef window_copy_spaces(uint32_t wid)
+{
+    CFArrayRef windows = cfarray_of_cfnumbers(&wid, sizeof(uint32_t), 1, kCFNumberSInt32Type);
+    CFArrayRef spaces = SLSCopySpacesForWindows(g_connection, 0x7, windows);
+    CFRelease(windows);
+    return spaces;
+}
+
+static void window_get_space_info(uint32_t wid, uint64_t *sid, bool *sticky)
+{
+    CFArrayRef spaces = window_copy_spaces(wid);
+    CFIndex count = spaces ? CFArrayGetCount(spaces) : 0;
+    if (sticky) *sticky = count > 1;
+    if (sid) {
+        *sid = 0;
+        if (count) {
+            CFNumberRef first = CFArrayGetValueAtIndex(spaces, 0);
+            CFNumberGetValue(first, kCFNumberSInt64Type, sid);
+        }
+        if (!*sid) *sid = window_display_space(wid);
+    }
+    if (spaces) CFRelease(spaces);
+}
+
 uint64_t window_space(uint32_t wid)
 {
-    uint64_t sid = 0;
-
-    CFArrayRef window_list_ref = cfarray_of_cfnumbers(&wid, sizeof(uint32_t), 1, kCFNumberSInt32Type);
-    CFArrayRef space_list_ref = SLSCopySpacesForWindows(g_connection, 0x7, window_list_ref);
-    if (!space_list_ref) goto err;
-
-    int count = CFArrayGetCount(space_list_ref);
-    if (!count) goto free;
-
-    CFNumberRef id_ref = CFArrayGetValueAtIndex(space_list_ref, 0);
-    CFNumberGetValue(id_ref, CFNumberGetType(id_ref), &sid);
-
-free:
-    CFRelease(space_list_ref);
-err:
-    CFRelease(window_list_ref);
-
-    return sid ? sid : window_display_space(wid);
+    uint64_t sid;
+    window_get_space_info(wid, &sid, NULL);
+    return sid;
 }
 
 uint64_t *window_space_list(uint32_t wid, int *count)
 {
     uint64_t *space_list = NULL;
-    CFArrayRef window_list_ref = cfarray_of_cfnumbers(&wid, sizeof(uint32_t), 1, kCFNumberSInt32Type);
-    CFArrayRef space_list_ref = SLSCopySpacesForWindows(g_connection, 0x7, window_list_ref);
-    if (!space_list_ref) goto err;
-
-    *count = CFArrayGetCount(space_list_ref);
+    CFArrayRef space_list_ref = window_copy_spaces(wid);
+    *count = space_list_ref ? CFArrayGetCount(space_list_ref) : 0;
+    if (!space_list_ref) return NULL;
     if (!*count) goto out;
 
     space_list = ts_alloc_list(uint64_t, *count);
@@ -105,8 +112,6 @@ uint64_t *window_space_list(uint32_t wid, int *count)
 
 out:
     CFRelease(space_list_ref);
-err:
-    CFRelease(window_list_ref);
     return space_list;
 }
 
@@ -136,10 +141,11 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
         SLSConnectionGetPID(connection, &pid);
     }
 
-    if ((flags & WINDOW_PROPERTY_DISPLAY) ||
-        (flags & WINDOW_PROPERTY_SPACE) ||
-        (flags & WINDOW_PROPERTY_IS_FULLSCREEN)) {
-        sid = window_space(wid);
+    bool need_space = flags & (WINDOW_PROPERTY_DISPLAY | WINDOW_PROPERTY_SPACE | WINDOW_PROPERTY_IS_FULLSCREEN);
+    bool need_sticky = flags & WINDOW_PROPERTY_IS_STICKY;
+    bool is_sticky = false;
+    if (need_space || need_sticky) {
+        window_get_space_info(wid, need_space ? &sid : NULL, need_sticky ? &is_sticky : NULL);
     }
 
     if ((flags & WINDOW_PROPERTY_LEVEL) ||
@@ -173,20 +179,14 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
         static char process_name[PROC_PIDPATHINFO_MAXSIZE];
         proc_name(pid, process_name, sizeof(process_name));
 
-        char *app = process_name;
-        char *escaped_app = ts_string_escape(app);
-
-        fprintf(rsp, "\t\"app\":\"%s\"", escaped_app ? escaped_app : app);
+        fprintf(rsp, "\t\"app\":\"%s\"", ts_json_string(process_name));
         did_output = true;
     }
 
     if (flags & WINDOW_PROPERTY_TITLE) {
         if (did_output) fprintf(rsp, ",\n");
 
-        char *title = window_property_title_ts(wid);
-        char *escaped_title = ts_string_escape(title);
-
-        fprintf(rsp, "\t\"title\":\"%s\"", escaped_title ? escaped_title : title);
+        fprintf(rsp, "\t\"title\":\"%s\"", ts_json_string(window_property_title_ts(wid)));
         did_output = true;
     }
 
@@ -392,7 +392,6 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
     if (flags & WINDOW_PROPERTY_IS_STICKY) {
         if (did_output) fprintf(rsp, ",\n");
 
-        bool is_sticky = window_is_sticky(wid);
         fprintf(rsp, "\t\"is-sticky\":%s", json_bool(is_sticky));
         did_output = true;
     }
@@ -418,12 +417,11 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
     struct view *view;
     struct window_node *node;
     bool is_minimized;
-    bool is_sticky;
-
-    if ((flags & WINDOW_PROPERTY_DISPLAY) ||
-        (flags & WINDOW_PROPERTY_SPACE) ||
-        (flags & WINDOW_PROPERTY_IS_VISIBLE)) {
-        sid = window_space(window->id);
+    bool is_sticky = window_check_flag(window, WINDOW_STICKY);
+    bool need_space = flags & (WINDOW_PROPERTY_DISPLAY | WINDOW_PROPERTY_SPACE | WINDOW_PROPERTY_IS_VISIBLE);
+    bool need_sticky = !is_sticky && (flags & (WINDOW_PROPERTY_IS_STICKY | WINDOW_PROPERTY_IS_VISIBLE));
+    if (need_space || need_sticky) {
+        window_get_space_info(window->id, need_space ? &sid : NULL, need_sticky ? &is_sticky : NULL);
     }
 
     if ((flags & WINDOW_PROPERTY_LEVEL) ||
@@ -450,11 +448,6 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
         is_minimized = window_check_flag(window, WINDOW_MINIMIZE);
     }
 
-    if ((flags & WINDOW_PROPERTY_IS_VISIBLE) ||
-        (flags & WINDOW_PROPERTY_IS_STICKY)) {
-        is_sticky = window_check_flag(window, WINDOW_STICKY) || window_is_sticky(window->id);
-    }
-
     bool did_output = false;
     fprintf(rsp, "{\n");
 
@@ -473,27 +466,21 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
     if (flags & WINDOW_PROPERTY_APP) {
         if (did_output) fprintf(rsp, ",\n");
 
-        char *app = window->application->name;
-        char *escaped_app = ts_string_escape(app);
-
-        fprintf(rsp, "\t\"app\":\"%s\"", escaped_app ? escaped_app : app);
+        fprintf(rsp, "\t\"app\":\"%s\"", ts_json_string(window->application->name));
         did_output = true;
     }
 
     if (flags & WINDOW_PROPERTY_TITLE) {
         if (did_output) fprintf(rsp, ",\n");
 
-        char *title = window_title_ts(window);
-        char *escaped_title = ts_string_escape(title);
-
-        fprintf(rsp, "\t\"title\":\"%s\"", escaped_title ? escaped_title : title);
+        fprintf(rsp, "\t\"title\":\"%s\"", ts_json_string(window_title_ts(window)));
         did_output = true;
     }
 
     if (flags & WINDOW_PROPERTY_SCRATCHPAD) {
         if (did_output) fprintf(rsp, ",\n");
 
-        fprintf(rsp, "\t\"scratchpad\":\"%s\"", window->scratchpad ? window->scratchpad : "");
+        fprintf(rsp, "\t\"scratchpad\":\"%s\"", ts_json_string(window->scratchpad));
         did_output = true;
     }
 
@@ -507,16 +494,14 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
     if (flags & WINDOW_PROPERTY_ROLE) {
         if (did_output) fprintf(rsp, ",\n");
 
-        char *role = window_role_ts(window);
-        fprintf(rsp, "\t\"role\":\"%s\"", role);
+        fprintf(rsp, "\t\"role\":\"%s\"", ts_json_string(window_role_ts(window)));
         did_output = true;
     }
 
     if (flags & WINDOW_PROPERTY_SUBROLE) {
         if (did_output) fprintf(rsp, ",\n");
 
-        char *subrole = window_subrole_ts(window);
-        fprintf(rsp, "\t\"subrole\":\"%s\"", subrole);
+        fprintf(rsp, "\t\"subrole\":\"%s\"", ts_json_string(window_subrole_ts(window)));
         did_output = true;
     }
 
@@ -842,18 +827,9 @@ bool window_is_fullscreen(struct window *window)
 
 bool window_is_sticky(uint32_t wid)
 {
-    bool result = false;
-
-    CFArrayRef window_list_ref = cfarray_of_cfnumbers(&wid, sizeof(uint32_t), 1, kCFNumberSInt32Type);
-    CFArrayRef space_list_ref = SLSCopySpacesForWindows(g_connection, 0x7, window_list_ref);
-    if (!space_list_ref) goto err;
-
-    result = CFArrayGetCount(space_list_ref) > 1;
-    CFRelease(space_list_ref);
-
-err:
-    CFRelease(window_list_ref);
-    return result;
+    bool sticky;
+    window_get_space_info(wid, NULL, &sticky);
+    return sticky;
 }
 
 bool window_shadow(uint32_t wid)
