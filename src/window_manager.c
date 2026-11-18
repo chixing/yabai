@@ -2711,8 +2711,10 @@ void window_manager_validate_and_check_for_windows_on_space(struct space_manager
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return;
 
-    int window_count = 0;
-    uint32_t *window_list = space_window_list(sid, &window_count, false);
+    int window_count;
+    uint32_t *window_list;
+    if (!space_query_window_list(&sid, 1, 0, &window_count, false, &window_list)) return;
+
     window_manager_validate_windows_on_space(wm, view, window_list, window_count);
     window_manager_check_for_windows_on_space(wm, view, window_list, window_count);
 
