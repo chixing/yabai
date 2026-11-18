@@ -483,12 +483,10 @@ void space_manager_toggle_window_split(struct space_manager *sm, struct window *
     }
 }
 
-int space_manager_mission_control_index(uint64_t sid)
+static int space_manager_index_in_display_spaces(CFArrayRef display_spaces_ref, uint64_t sid)
 {
-    uint64_t result = 0;
     int desktop_cnt = 1;
 
-    CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
     if (!display_spaces_ref) return 0;
 
     int display_spaces_count = CFArrayGetCount(display_spaces_ref);
@@ -500,17 +498,22 @@ int space_manager_mission_control_index(uint64_t sid)
         for (int j = 0; j < spaces_count; ++j) {
             CFDictionaryRef space_ref = CFArrayGetValueAtIndex(spaces_ref, j);
             CFNumberRef sid_ref = CFDictionaryGetValue(space_ref, CFSTR("id64"));
-            CFNumberGetValue(sid_ref, CFNumberGetType(sid_ref), &result);
-            if (sid == result) goto out;
+            int64_t space_id;
+            if (CFNumberGetValue(sid_ref, kCFNumberSInt64Type, &space_id) && sid == (uint64_t) space_id) return desktop_cnt;
 
             ++desktop_cnt;
         }
     }
 
-    desktop_cnt = 0;
-out:
-    CFRelease(display_spaces_ref);
-    return desktop_cnt;
+    return 0;
+}
+
+int space_manager_mission_control_index(uint64_t sid)
+{
+    CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
+    int index = space_manager_index_in_display_spaces(display_spaces_ref, sid);
+    if (display_spaces_ref) CFRelease(display_spaces_ref);
+    return index;
 }
 
 uint64_t space_manager_mission_control_space(int desktop_id)

@@ -123,7 +123,12 @@ static inline const char *window_layer(int level)
     return "unknown";
 }
 
-void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
+static CFArrayRef window_copy_display_spaces_for_query(uint64_t flags)
+{
+    return (!flags || (flags & WINDOW_PROPERTY_SPACE)) ? SLSCopyManagedDisplaySpaces(g_connection) : NULL;
+}
+
+static void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags, CFArrayRef display_spaces)
 {
     TIME_FUNCTION;
 
@@ -240,7 +245,7 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
     if (flags & WINDOW_PROPERTY_SPACE) {
         if (did_output) fprintf(rsp, ",\n");
 
-        int space = space_manager_mission_control_index(sid);
+        int space = space_manager_index_in_display_spaces(display_spaces, sid);
         fprintf(rsp, "\t\"space\":%d", space);
         did_output = true;
     }
@@ -405,7 +410,7 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
     fprintf(rsp, "\n}");
 }
 
-void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
+static void window_serialize_with_spaces(FILE *rsp, struct window *window, uint64_t flags, CFArrayRef display_spaces)
 {
     TIME_FUNCTION;
 
@@ -523,7 +528,7 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
     if (flags & WINDOW_PROPERTY_SPACE) {
         if (did_output) fprintf(rsp, ",\n");
 
-        int space = space_manager_mission_control_index(sid);
+        int space = space_manager_index_in_display_spaces(display_spaces, sid);
         fprintf(rsp, "\t\"space\":%d", space);
         did_output = true;
     }
@@ -693,6 +698,13 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
     }
 
     fprintf(rsp, "\n}");
+}
+
+void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
+{
+    CFArrayRef display_spaces = window_copy_display_spaces_for_query(flags);
+    window_serialize_with_spaces(rsp, window, flags, display_spaces);
+    if (display_spaces) CFRelease(display_spaces);
 }
 
 char *window_property_title_ts(uint32_t wid)

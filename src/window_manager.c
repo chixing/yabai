@@ -42,13 +42,16 @@ void window_manager_query_windows_for_spaces(FILE *rsp, uint64_t *space_list, in
     int window_count = 0;
     uint32_t *window_list = space_window_list_for_connection(space_list, space_count, 0, &window_count, true);
 
+    CFArrayRef display_spaces = window_count ? window_copy_display_spaces_for_query(flags) : NULL;
     fprintf(rsp, "[");
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
-        if (window) window_serialize(rsp, window, flags); else window_nonax_serialize(rsp, window_list[i], flags);
+        if (window) window_serialize_with_spaces(rsp, window, flags, display_spaces);
+        else window_nonax_serialize(rsp, window_list[i], flags, display_spaces);
         if (i < window_count - 1) fprintf(rsp, ",");
     }
     fprintf(rsp, "]\n");
+    if (display_spaces) CFRelease(display_spaces);
 }
 
 void window_manager_query_windows_for_display(FILE *rsp, uint32_t did, uint64_t flags)

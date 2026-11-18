@@ -62,6 +62,7 @@ struct view *space_manager_tile_window_on_space(struct space_manager *sm, struct
 bool space_manager_equalize_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag);
 bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag);
 void space_manager_toggle_window_split(struct space_manager *sm, struct window *window);
+static int space_manager_index_in_display_spaces(CFArrayRef display_spaces_ref, uint64_t sid);
 int space_manager_mission_control_index(uint64_t sid);
 uint64_t space_manager_mission_control_space(int desktop_id);
 uint64_t space_manager_cursor_space(void);
