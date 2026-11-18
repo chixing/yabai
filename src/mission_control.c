@@ -17,6 +17,9 @@ static CONNECTION_CALLBACK(connection_handler)
     } else if (type == 808) {
         uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
         event_loop_post(&g_event_loop, SLS_WINDOW_ORDERED, (void *) (intptr_t) wid, 0);
+    } else if ((type == 815 || type == 816) && data && data_length >= sizeof(uint32_t)) {
+        uint32_t wid; memcpy(&wid, data, sizeof(wid));
+        event_loop_post(&g_event_loop, SLS_WINDOW_VISIBILITY_CHANGED, (void *) (intptr_t) wid, 0);
     } else if (type == 804) {
         uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
         event_loop_post(&g_event_loop, SLS_WINDOW_DESTROYED, (void *) (intptr_t) wid, 0);
